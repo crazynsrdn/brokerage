@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # Redis for message queue and caching
+  redis:
+    image: redis:7-alpine
+    container_name: brokerage_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI application
+  api:
+    build: .
+    container_name: brokerage_api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery worker for order processing
+  worker:
+    build: .
+    container_name: brokerage_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+    command: celery -A worker.celery_app worker --loglevel=info
+    healthcheck:
+      test: ["CMD", "celery", "-A", "worker.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alternative simple Redis worker (uncomment if you prefer this over Celery)
+  # simple_worker:
+  #   build: .
+  #   container_name: brokerage_simple_worker
+  #   environment:
+  #     - REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./app:/app
+  #   command: python worker.py
+
+  # Celery Flower for monitoring (optional)
+  flower:
+    build: .
+    container_name: brokerage_flower
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    volumes:
+      - ./app:/app
+    command: celery -A worker.celery_app flower --port=5555
+    profiles:
+      - monitoring
+
+  # Redis Commander for Redis GUI (optional)
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: brokerage_redis_commander
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    profiles:
+      - monitoring
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: brokerage_network
