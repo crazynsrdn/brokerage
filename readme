@@ -1,0 +1,425 @@
+# 🏦 Brokerage Trading API
+
+A FastAPI-based brokerage system designed to handle trading through Interactive Brokers. This is the foundational API with user management and order processing capabilities.
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   FastAPI App   │────│   Redis Queue   │────│  Celery Worker  │
+├─────────────────┤    ├─────────────────┤    ├─────────────────┤
+│ • User Service  │    │ • Order Queue   │    │ • Order Processor│
+│ • Trading API   │    │ • Results Cache │    │ • IB Integration│
+│ • Auto Swagger  │    │ • Session Store │    │ • Trade Logger  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Git
+
+### 1. Setup Project Structure
+```bash
+# Create project directory
+mkdir brokerage-api
+cd brokerage-api
+
+# Create app directory
+mkdir app
+cd app
+
+# Save the Python files in the app/ directory:
+# - main.py (FastAPI app)
+# - worker.py (Celery worker)
+# Save other files in project root:
+# - docker-compose.yml
+# - Dockerfile  
+# - requirements.txt
+```
+
+### 2. Launch Services
+```bash
+# Start all services
+docker-compose up -d
+
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f api
+docker-compose logs -f worker
+```
+
+### 3. Access Services
+- **API Documentation**: http://localhost:8000/docs
+- **API Alternative Docs**: http://localhost:8000/redoc
+- **Health Check**: http://localhost:8000/health
+- **Flower (Celery Monitor)**: http://localhost:5555 (run with monitoring profile)
+
+## 📚 API Endpoints
+
+### User Service
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/user/` | Create new user |
+| GET | `/user/{id}` | Get user by ID |
+| GET | `/user/` | List all users |
+| PUT | `/user/{id}/balance` | Update user balance |
+
+### Trading Service
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/order` | Submit trading order |
+| GET | `/order/{id}` | Get order details |
+| GET | `/orders/user/{id}` | Get user orders |
+| DELETE | `/order/{id}` | Cancel order |
+
+### System
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | System health check |
+| GET | `/queue/status` | Redis queue status |
+
+## 🧪 Testing the API
+
+### 1. Test User Creation
+```bash
+curl -X POST "http://localhost:8000/user/" \
+-H "Content-Type: application/json" \
+-d '{
+  "username": "test_trader",
+  "email": "trader@example.com",
+  "full_name": "Test Trader",
+  "initial_balance": 25000.0
+}'
+```
+
+### 2. Test Order Submission
+```bash
+curl -X POST "http://localhost:8000/order" \
+-H "Content-Type: application/json" \
+-d '{
+  "user_id": "user_1",
+  "symbol": "AAPL",
+  "side": "BUY",
+  "order_type": "MARKET",
+  "quantity": 100
+}'
+```
+
+### 3. Check Order Status
+```bash
+curl "http://localhost:8000/order/{order_id}"
+```
+
+## 🔧 Development
+
+### Run with Auto-reload
+```bash
+# Start only Redis
+docker-compose up redis -d
+
+# Run API with auto-reload
+cd app
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Run worker separately
+python worker.py
+```
+
+### Environment Variables
+```bash
+# Redis connection
+REDIS_URL=redis://localhost:6379/0
+
+# API settings
+API_HOST=0.0.0.0
+API_PORT=8000
+```
+
+### Monitoring Services
+```bash
+# Start with monitoring tools
+docker-compose --profile monitoring up -d
+
+# Access monitoring:
+# - Flower: http://localhost:5555
+# - Redis Commander: http://localhost:8081
+```
+
+## 📊 Order Processing Flow
+
+1. **Order Submission** → API validates and stores order
+2. **Queue Addition** → Order pushed to Redis queue
+3. **Worker Processing** → Celery worker processes order
+4. **Status Update** → Results cached in Redis
+5. **Client Notification** → API returns updated status
+
+## 🔄 Order Types Supported
+
+- **MARKET**: Execute at current market price
+- **LIMIT**: Execute at specified price or better
+- **STOP**: Execute when price reaches stop level
+- **STOP_LIMIT**: Combination of stop and limit orders
+
+## 🛠️ Customization
+
+### Adding New Order Types
+```python
+# In main.py, extend OrderType enum
+class OrderType(str, Enum):
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+    STOP = "STOP"
+    STOP_LIMIT = "STOP_LIMIT"
+    # Add new types here
+    TRAILING_STOP = "TRAILING_STOP"
+```
+
+### Database Integration
+Replace in-memory storage with database:
+```python
+# Add to requirements.txt
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# Update main.py to use SQLAlchemy models
+```
+
+### Interactive Brokers Integration
+```python
+# In worker.py, replace dummy processing
+import ib_insync
+
+def process_trade_order(order_data):
+    ib = IB()
+    ib.connect('127.0.0.1', 7497, clientId=1)
+    # Real IB integration here
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Redis Connection Failed**
+```bash
+# Check Redis status
+docker-compose logs redis
+
+# Restart Redis
+docker-compose restart redis
+```
+
+**Worker Not Processing Orders**
+```bash
+# Check worker logs
+docker-compose logs worker
+
+# Restart worker
+docker-compose restart worker
+```
+
+**API Not Accessible**
+```bash
+# Check if port is in use
+netstat -tulpn | grep 8000
+
+# Use different port
+docker-compose up -d --scale api=0
+docker run -p 8001:8000 brokerage-api_api
+```
+
+## 📈 Production Considerations
+
+1. **Database**: Replace in-memory storage with PostgreSQL
+2. **Authentication**: Add JWT-based authentication
+3. **Rate Limiting**: Implement API rate limiting
+4. **Logging**: Enhanced structured logging
+5. **Monitoring**: Add Prometheus metrics
+6. **Security**: HTTPS, input validation, SQL injection protection
+7. **Scalability**: Horizontal scaling with load balancer
+
+🔐 Security Notes
+
+Current implementation uses dummy authentication
+Add proper JWT authentication before production
+Implement API key management for external access
+Use HTTPS in production
+Validate and sanitize all inputs
+Implement rate limiting per user/IP
+Add audit logging for all trading operations
+
+📋 API Examples
+Complete User Workflow
+bash# 1. Create a new user
+curl -X POST "http://localhost:8000/user/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "alice_trader",
+    "email": "alice@example.com", 
+    "full_name": "Alice Johnson",
+    "initial_balance": 50000.0
+  }'
+
+# Response: {"id": "user_abc123", "username": "alice_trader", ...}
+
+# 2. Check user details
+curl "http://localhost:8000/user/user_abc123"
+
+# 3. Submit a market order
+curl -X POST "http://localhost:8000/order" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_abc123",
+    "symbol": "TSLA",
+    "side": "BUY", 
+    "order_type": "MARKET",
+    "quantity": 50
+  }'
+
+# 4. Submit a limit order
+curl -X POST "http://localhost:8000/order" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_abc123",
+    "symbol": "NVDA",
+    "side": "BUY",
+    "order_type": "LIMIT", 
+    "quantity": 25,
+    "price": 450.00
+  }'
+
+# 5. Check all user orders
+curl "http://localhost:8000/orders/user/user_abc123"
+
+# 6. Cancel an order
+curl -X DELETE "http://localhost:8000/order/order_xyz789"
+System Monitoring
+bash# Check system health
+curl "http://localhost:8000/health"
+
+# Monitor queue status
+curl "http://localhost:8000/queue/status"
+
+# View API documentation
+open http://localhost:8000/docs
+🧪 Testing Scenarios
+Load Testing
+bash# Install load testing tool
+pip install locust
+
+# Create locustfile.py for load testing
+cat > locustfile.py << 'EOF'
+from locust import HttpUser, task, between
+
+class TradingUser(HttpUser):
+    wait_time = between(1, 3)
+    
+    def on_start(self):
+        # Create test user
+        response = self.client.post("/user/", json={
+            "username": f"test_user_{self.environment.runner.user_count}",
+            "email": f"test{self.environment.runner.user_count}@example.com",
+            "full_name": "Test User",
+            "initial_balance": 10000.0
+        })
+        self.user_id = response.json()["id"]
+    
+    @task(3)
+    def submit_order(self):
+        self.client.post("/order", json={
+            "user_id": self.user_id,
+            "symbol": "AAPL",
+            "side": "BUY",
+            "order_type": "MARKET", 
+            "quantity": 10
+        })
+    
+    @task(1)
+    def check_orders(self):
+        self.client.get(f"/orders/user/{self.user_id}")
+EOF
+
+# Run load test
+locust -f locustfile.py --host=http://localhost:8000
+🔄 CI/CD Pipeline
+GitHub Actions Example
+yaml# .github/workflows/test.yml
+name: Test API
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest httpx
+    
+    - name: Run tests
+      run: pytest tests/
+      
+    - name: Build Docker image
+      run: docker build -t brokerage-api .
+🗂️ Project Structure
+brokerage-api/
+├── app/
+│   ├── main.py              # FastAPI application
+│   ├── worker.py            # Celery worker
+│   └── __init__.py
+├── tests/
+│   ├── test_users.py        # User API tests
+│   ├── test_orders.py       # Trading API tests
+│   └── __init__.py
+├── docker-compose.yml       # Container orchestration
+├── Dockerfile              # Container definition
+├── requirements.txt        # Python dependencies
+├── README.md              # This file
+└── .env.example           # Environment variables template
+🚀 Next Steps
+Phase 2 - Interactive Brokers Integration
+
+Add IB Gateway connection
+Implement real order execution
+Add market data streaming
+Portfolio management endpoints
+
+Phase 3 - Advanced Features
+
+Risk management system
+Real-time WebSocket updates
+Advanced order types
+Multi-account support
+
+Phase 4 - Production Ready
+
+Database persistence
+Authentication & authorization
+Comprehensive logging
+Performance monitoring
+
+📞 Support
+For questions and support:
+
+Check the auto-generated API docs at /docs
+Review container logs with docker-compose logs
+Test endpoints with the provided curl examples
+Monitor system health via /health endpoint
